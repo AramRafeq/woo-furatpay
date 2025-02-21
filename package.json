@@ -1,0 +1,20 @@
+{
+  "name": "woo-furatpay",
+  "version": "1.0.0",
+  "description": "FuratPay payment gateway for WooCommerce",
+  "scripts": {
+    "build": "wp-scripts build",
+    "start": "wp-scripts start",
+    "packages-update": "wp-scripts packages-update"
+  },
+  "dependencies": {
+    "@wordpress/element": "^5.0.0",
+    "@wordpress/i18n": "^4.0.0",
+    "@wordpress/components": "^25.0.0"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^26.0.0",
+    "@wordpress/eslint-plugin": "^14.0.0",
+    "@wordpress/babel-preset-default": "^7.0.0"
+  }
+} 

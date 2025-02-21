@@ -20,6 +20,7 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         $this->has_fields = true;
         $this->method_title = __('FuratPay', 'woo_furatpay');
         $this->method_description = __('Accept payments through FuratPay payment gateway', 'woo_furatpay');
+        $this->supports = array('products');
 
         // Load the settings
         $this->init_form_fields();
@@ -35,14 +36,36 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         // Actions
         add_action('woocommerce_update_options_payment_gateways_' . $this->id, array($this, 'process_admin_options'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_checkout_scripts'));
-
+        
+        // Add payment form display hooks
+        add_action('woocommerce_receipt_' . $this->id, array($this, 'receipt_page'));
+        add_action('woocommerce_review_order_before_payment', array($this, 'payment_fields_before'));
+        add_action('woocommerce_review_order_after_payment', array($this, 'payment_fields_after'));
+        
         add_action('woocommerce_init', function () {
             new FuratPay_IPN_Handler($this->api_url, $this->api_key);
         });
 
-        // add_action('woocommerce_blocks_loaded', function() {
-        //     require_once FURATPAY_PLUGIN_PATH . 'includes/blocks/class-furatpay-blocks.php';
-        // });
+        // Enable blocks integration
+        add_action('woocommerce_blocks_loaded', function() {
+            require_once FURATPAY_PLUGIN_PATH . 'includes/blocks/class-furatpay-blocks.php';
+        });
+
+        // Add AJAX endpoints
+        add_action('wp_ajax_furatpay_get_payment_services', array($this, 'ajax_get_payment_services'));
+        add_action('wp_ajax_nopriv_furatpay_get_payment_services', array($this, 'ajax_get_payment_services'));
+        add_action('wp_ajax_furatpay_initiate_payment', array($this, 'ajax_initiate_payment'));
+        add_action('wp_ajax_nopriv_furatpay_initiate_payment', array($this, 'ajax_initiate_payment'));
+
+        // Debug hooks
+        add_action('woocommerce_checkout_before_customer_details', array($this, 'debug_before_customer_details'));
+        add_action('woocommerce_checkout_after_customer_details', array($this, 'debug_after_customer_details'));
+        add_action('woocommerce_checkout_before_order_review', array($this, 'debug_before_order_review'));
+        add_action('woocommerce_checkout_after_order_review', array($this, 'debug_after_order_review'));
+        add_action('woocommerce_payment_methods_list', array($this, 'debug_payment_methods_list'), 10, 2);
+
+        // Add API endpoint
+        add_action('woocommerce_api_furatpay_pay', array($this, 'handle_payment_page'));
     }
 
     public function init_form_fields()
@@ -80,6 +103,12 @@ class FuratPay_Gateway extends WC_Payment_Gateway
                 'type' => 'password',
                 'description' => __('Your FuratPay API key', 'woo_furatpay'),
                 'default' => ''
+            ),
+            'customer_id' => array(
+                'title' => __('FuratPay Customer ID', 'woo_furatpay'),
+                'type' => 'text',
+                'description' => __('Your FuratPay customer ID', 'woo_furatpay'),
+                'default' => ''
             )
         );
     }
@@ -102,48 +131,203 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         return $result;
     }
 
+    public function debug_before_customer_details() {
+        error_log('FuratPay: Before customer details section');
+    }
+
+    public function debug_after_customer_details() {
+        error_log('FuratPay: After customer details section');
+    }
+
+    public function debug_before_order_review() {
+        error_log('FuratPay: Before order review section');
+    }
+
+    public function debug_after_order_review() {
+        error_log('FuratPay: After order review section');
+    }
+
+    public function debug_payment_methods_list($list, $order_id = null) {
+        error_log('FuratPay: Payment methods list being generated');
+        $gateway_ids = array_keys($list);
+        error_log('Available gateway IDs: ' . implode(', ', $gateway_ids));
+        return $list;
+    }
+
+    public function payment_fields_before() {
+        error_log('FuratPay: Before payment fields section');
+        echo '<div id="furatpay-payment-form-wrapper">';
+    }
+
+    public function payment_fields_after() {
+        error_log('FuratPay: After payment fields section');
+        echo '</div>';
+    }
+
     public function payment_fields()
     {
-        error_log('################ FuratPay payment_fields called ################');
-        echo '<div class="furatpay-debug">Payment fields test</div>';
-        return;// TEMPORARY
+        error_log('FuratPay Gateway: Starting payment_fields method');
+        error_log('FuratPay Gateway: API URL configured: ' . $this->api_url);
+        error_log('FuratPay Gateway: API Key configured: ' . substr($this->api_key, 0, 8) . '...');
         
-        if ($description = $this->get_description()) {
-            echo wpautop(wptexturize($description));
-        }
-
-        if (empty($this->api_url) || empty($this->api_key)) {
-            echo '<div class="woocommerce-error">' . 
-                 __('Payment method is not properly configured.', 'woo_furatpay') . 
-                 '</div>';
-            return;
-        }
-
         try {
+            echo '<div class="furatpay-payment-form">';
+            
+            if ($description = $this->get_description()) {
+                echo wpautop(wptexturize($description));
+            }
+
+            if (empty($this->api_url) || empty($this->api_key)) {
+                error_log('FuratPay Gateway: Missing API configuration');
+                throw new Exception(__('Payment method is not properly configured.', 'woo_furatpay'));
+            }
+
+            error_log('FuratPay Gateway: Fetching payment services');
             $payment_services = FuratPay_API_Handler::get_payment_services($this->api_url, $this->api_key);
-            include FURATPAY_PLUGIN_PATH . 'templates/payment-methods.php';
+            error_log('FuratPay Gateway: Raw payment services: ' . print_r($payment_services, true));
+            
+            if (empty($payment_services)) {
+                error_log('FuratPay Gateway: No payment services available');
+                throw new Exception(__('No payment methods available.', 'woo_furatpay'));
+            }
+
+            // Filter active services
+            $active_services = $payment_services;
+
+            if (empty($active_services)) {
+                error_log('FuratPay Gateway: No active payment services available');
+                throw new Exception(__('No active payment methods available.', 'woo_furatpay'));
+            }
+
+            echo '<div class="furatpay-services-wrapper">';
+            echo '<h4>' . __('Select a payment service:', 'woo_furatpay') . '</h4>';
+            echo '<ul class="furatpay-method-list">';
+            
+            foreach ($active_services as $service) {
+                error_log('FuratPay Gateway: Processing service: ' . print_r($service, true));
+                echo '<li class="furatpay-method-item">';
+                echo '<label>';
+                echo '<input 
+                    type="radio" 
+                    name="furatpay_service" 
+                    value="' . esc_attr($service['id']) . '"
+                    ' . checked(isset($_POST['furatpay_service']) && $_POST['furatpay_service'] == $service['id'], true, false) . '
+                    required="required"
+                    class="furatpay-service-radio"
+                />';
+                
+                if (!empty($service['logo'])) {
+                    echo '<img 
+                        src="' . esc_url($service['logo']) . '" 
+                        alt="' . esc_attr($service['name']) . '"
+                        class="furatpay-method-logo"
+                    />';
+                }
+                
+                echo '<span class="furatpay-method-name">' . esc_html($service['name']) . '</span>';
+                echo '</label>';
+                echo '</li>';
+            }
+            
+            echo '</ul>';
+            echo '</div>';
+            
+            // Add JavaScript for handling radio button changes
+            ?>
+            <script type="text/javascript">
+            jQuery(function($) {
+                $('.furatpay-service-radio').on('change', function() {
+                    console.log('Payment service selected:', $(this).val());
+                    $('body').trigger('update_checkout');
+                });
+            });
+            </script>
+            <?php
+            
+            echo '</div>';
+            error_log('FuratPay Gateway: Payment form rendered successfully');
+            
         } catch (Exception $e) {
-            echo '<div class="woocommerce-error">' . 
-                 __('Payment method unavailable. Please try again later.', 'woo_furatpay') . 
-                 '</div>';
+            error_log('FuratPay Gateway Error: ' . $e->getMessage());
+            echo '<div class="woocommerce-error">' . esc_html($e->getMessage()) . '</div>';
         }
     }
 
     public function enqueue_checkout_scripts()
     {
-        if (is_checkout()) {
-            wp_enqueue_style(
-                'furatpay-checkout',
-                FURATPAY_PLUGIN_URL . 'assets/css/checkout.css'
-            );
-
-            wp_enqueue_script(
-                'furatpay-debug',
-                FURATPAY_PLUGIN_URL . 'assets/js/debug.js',
-                ['jquery'],
-                time()
-            );
+        error_log('FuratPay: Attempting to enqueue checkout scripts');
+        
+        if (!is_checkout()) {
+            error_log('FuratPay: Not checkout page, skipping script enqueue');
+            return;
         }
+
+        error_log('FuratPay: Enqueuing checkout scripts for checkout page');
+
+        // Force cache bust with current timestamp
+        $version = time();
+
+        // Enqueue jQuery first
+        wp_enqueue_script('jquery');
+
+        // Enqueue checkout script with explicit jQuery dependency
+        $checkout_script_url = FURATPAY_PLUGIN_URL . 'assets/js/checkout.js';
+        error_log('FuratPay: Loading checkout.js from: ' . $checkout_script_url);
+        
+        wp_enqueue_script(
+            'furatpay-checkout',
+            $checkout_script_url,
+            array('jquery', 'wc-checkout'),
+            $version,
+            true
+        );
+
+        // Common data for both classic and block checkout
+        $script_data = array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('furatpay-nonce'),
+            'title' => $this->title,
+            'description' => $this->description,
+            'icon' => apply_filters('woocommerce_furatpay_icon', ''),
+            'supports' => $this->supports,
+            'debug' => true,
+            'i18n' => array(
+                'processing' => __('Processing payment, please wait...', 'woo_furatpay'),
+                'redirect' => __('Redirecting to payment service...', 'woo_furatpay'),
+                'waiting' => __('Waiting for Payment', 'woo_furatpay'),
+                'complete_payment' => __('Payment window has been opened in a new tab. Please complete your payment there. This page will update automatically once payment is confirmed.', 'woo_furatpay'),
+                'selectService' => __('Please select a payment service.', 'woo_furatpay'),
+                'noServices' => __('No payment services available.', 'woo_furatpay'),
+                'popupBlocked' => __('Popup was blocked. Please click the button below to open the payment window:', 'woo_furatpay'),
+                'openPayment' => __('Open Payment Window', 'woo_furatpay')
+            )
+        );
+
+        error_log('FuratPay: Localizing script data: ' . print_r($script_data, true));
+        wp_localize_script('furatpay-checkout', 'furatpayData', $script_data);
+
+        // Only load blocks script if using block checkout
+        if (function_exists('wc_current_theme_is_fse_theme') && wc_current_theme_is_fse_theme()) {
+            error_log('FuratPay: Loading blocks script for FSE theme');
+            wp_enqueue_script(
+                'furatpay-blocks',
+                FURATPAY_PLUGIN_URL . 'build/blocks.js',
+                array('wc-blocks-registry', 'wp-element', 'wp-i18n'),
+                $version,
+                true
+            );
+            wp_localize_script('furatpay-blocks', 'furatpayData', $script_data);
+        }
+
+        error_log('FuratPay: Loading checkout CSS');
+        wp_enqueue_style(
+            'furatpay-checkout',
+            FURATPAY_PLUGIN_URL . 'assets/css/checkout.css',
+            array(),
+            $version
+        );
+
+        error_log('FuratPay: Script enqueuing completed');
     }
 
     /**
@@ -176,37 +360,87 @@ class FuratPay_Gateway extends WC_Payment_Gateway
      */
     public function process_payment($order_id)
     {
-        $order = wc_get_order($order_id);
-
         try {
-            // Get selected payment service
-            $selected_service = isset($_POST['furatpay_service']) ? sanitize_text_field($_POST['furatpay_service']) : '';
+            error_log('FuratPay: Processing payment for order ' . $order_id);
+            error_log('FuratPay: POST data: ' . print_r($_POST, true));
+            
+            $order = wc_get_order($order_id);
+            if (!$order) {
+                throw new Exception(__('Order not found', 'woo_furatpay'));
+            }
 
-            if (empty($selected_service)) {
-                throw new Exception(__('Please select a payment method', 'woo_furatpay'));
+            // Get selected payment service
+            $payment_service_id = isset($_POST['furatpay_service']) ? intval($_POST['furatpay_service']) : 0;
+            
+            // For blocks checkout, check the payment data
+            if (!$payment_service_id && isset($_POST['payment_method_data'])) {
+                $payment_data = json_decode(stripslashes($_POST['payment_method_data']), true);
+                error_log('FuratPay: Block checkout payment data: ' . print_r($payment_data, true));
+                if (isset($payment_data['furatpay_service'])) {
+                    $payment_service_id = intval($payment_data['furatpay_service']);
+                }
+            }
+
+            error_log('FuratPay: Selected payment service ID: ' . $payment_service_id);
+            
+            if (!$payment_service_id) {
+                throw new Exception(__('Please select a payment service', 'woo_furatpay'));
+            }
+
+            // Get customer ID from settings
+            $customer_id = $this->get_option('customer_id');
+            if (empty($customer_id)) {
+                throw new Exception(__('FuratPay customer ID is not configured', 'woo_furatpay'));
             }
 
             // Create invoice
-            $invoice_id = FuratPay_API_Handler::create_invoice($this->api_url, $this->api_key, $order);
+            $invoice_id = FuratPay_API_Handler::create_invoice(
+                $this->api_url,
+                $this->api_key,
+                $order,
+                $customer_id
+            );
 
-            // Create payment and get redirect URL
+            error_log('FuratPay: Invoice created with ID: ' . $invoice_id);
+
+            // Create payment URL
             $payment_url = FuratPay_API_Handler::create_payment(
                 $this->api_url,
                 $this->api_key,
                 $invoice_id,
-                $selected_service
+                $payment_service_id
             );
 
-            // Update order status
-            $order->update_status('pending', __('Awaiting FuratPay payment', 'woo_furatpay'));
+            error_log('FuratPay: Payment URL generated: ' . $payment_url);
 
-            // Return success with redirect
+            // Store payment details in order meta
+            $order->update_meta_data('_furatpay_payment_url', $payment_url);
+            $order->update_meta_data('_furatpay_payment_service_id', $payment_service_id);
+            $order->update_meta_data('_furatpay_invoice_id', $invoice_id);
+            
+            // Update order status to pending
+            $order->update_status('pending', __('Awaiting FuratPay payment confirmation', 'woo_furatpay'));
+            $order->save();
+
+            // Empty cart
+            WC()->cart->empty_cart();
+
+            // Return a custom endpoint URL that will handle the payment process
+            $pay_url = add_query_arg(
+                array(
+                    'order_id' => $order->get_id(),
+                    'key' => $order->get_order_key(),
+                ),
+                WC()->api_request_url('furatpay_pay')
+            );
+
             return array(
                 'result' => 'success',
-                'redirect' => $payment_url
+                'redirect' => $pay_url
             );
 
         } catch (Exception $e) {
+            error_log('FuratPay Error: ' . $e->getMessage());
             wc_add_notice($e->getMessage(), 'error');
             return array(
                 'result' => 'failure',
@@ -215,12 +449,201 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         }
     }
 
+    /**
+     * Handle the payment page
+     */
+    public function handle_payment_page() {
+        if (!isset($_GET['order_id']) || !isset($_GET['key'])) {
+            wp_die(__('Invalid payment request', 'woo_furatpay'));
+        }
+
+        $order_id = wc_clean($_GET['order_id']);
+        $order_key = wc_clean($_GET['key']);
+        $order = wc_get_order($order_id);
+
+        if (!$order || $order->get_order_key() !== $order_key) {
+            wp_die(__('Invalid order', 'woo_furatpay'));
+        }
+
+        $payment_url = $order->get_meta('_furatpay_payment_url');
+        if (!$payment_url) {
+            wp_die(__('Payment URL not found', 'woo_furatpay'));
+        }
+
+        // Enqueue required scripts
+        wp_enqueue_script('jquery');
+        wp_enqueue_script('wc-checkout');
+        
+        // Add our script data
+        $script_data = array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('furatpay-nonce'),
+            'i18n' => array(
+                'popupBlocked' => __('Popup was blocked. Please try again.', 'woo_furatpay'),
+                'paymentFailed' => __('Payment failed. Please try again.', 'woo_furatpay')
+            )
+        );
+        wp_localize_script('jquery', 'furatpayData', $script_data);
+
+        // Display payment page template
+        wc_get_template(
+            'payment.php',
+            array(
+                'order' => $order,
+                'payment_url' => $payment_url,
+                'return_url' => $this->get_return_url($order),
+                'ajax_url' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('furatpay-nonce')
+            ),
+            '',
+            FURATPAY_PLUGIN_PATH . 'templates/'
+        );
+        exit;
+    }
+
+    public function check_payment_status()
+    {
+        check_ajax_referer('furatpay-nonce', 'nonce');
+
+        $order_id = isset($_POST['order_id']) ? intval($_POST['order_id']) : 0;
+        if (!$order_id) {
+            wp_send_json_error(['message' => __('Invalid order ID', 'woo_furatpay')]);
+        }
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            wp_send_json_error(['message' => __('Order not found', 'woo_furatpay')]);
+        }
+
+        $invoice_id = $order->get_meta('_furatpay_invoice_id');
+        if (!$invoice_id) {
+            wp_send_json_error(['message' => __('Invoice ID not found', 'woo_furatpay')]);
+        }
+
+        try {
+            // Check payment status with FuratPay API
+            $status = FuratPay_API_Handler::check_payment_status(
+                $this->api_url,
+                $this->api_key,
+                $invoice_id
+            );
+
+            if ($status === 'paid') {
+                $order->payment_complete();
+                wp_send_json_success([
+                    'status' => 'completed',
+                    'redirect_url' => $order->get_checkout_order_received_url()
+                ]);
+            } else if ($status === 'failed') {
+                $order->update_status('failed', __('Payment failed or was declined', 'woo_furatpay'));
+                wp_send_json_success([
+                    'status' => 'failed',
+                    'message' => __('Payment failed or was declined. Please try again.', 'woo_furatpay')
+                ]);
+            } else {
+                wp_send_json_success([
+                    'status' => 'pending'
+                ]);
+            }
+        } catch (Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()]);
+        }
+    }
+
     public function validate_fields()
     {
-        if (empty($_POST['furatpay_service'])) {
-            wc_add_notice(__('Please select a payment method', 'woo_furatpay'), 'error');
+        error_log('FuratPay: Validating fields');
+        error_log('POST data: ' . print_r($_POST, true));
+        error_log('REQUEST data: ' . print_r($_REQUEST, true));
+        
+        // For block checkout, validation happens in process_payment
+        if (function_exists('wc_current_theme_is_fse_theme') && wc_current_theme_is_fse_theme()) {
+            error_log('FuratPay: Block checkout detected, skipping validation');
+            return true;
+        }
+        
+        if (!isset($_POST['furatpay_service']) || empty($_POST['furatpay_service'])) {
+            error_log('FuratPay: No service selected');
+            wc_add_notice(__('Please select a payment service.', 'woo_furatpay'), 'error');
             return false;
         }
+
+        try {
+            $payment_services = FuratPay_API_Handler::get_payment_services($this->api_url, $this->api_key);
+            $service_ids = array_column($payment_services, 'id');
+            
+            if (!in_array($_POST['furatpay_service'], $service_ids)) {
+                error_log('FuratPay: Invalid service selected');
+                wc_add_notice(__('Invalid payment service selected.', 'woo_furatpay'), 'error');
+                return false;
+            }
+        } catch (Exception $e) {
+            error_log('FuratPay Validation Error: ' . $e->getMessage());
+            wc_add_notice(__('Unable to validate payment service. Please try again.', 'woo_furatpay'), 'error');
+            return false;
+        }
+
+        error_log('FuratPay: Fields validated successfully');
         return true;
+    }
+
+    /**
+     * AJAX endpoint to get payment services
+     */
+    public function ajax_get_payment_services() {
+        error_log('FuratPay: AJAX get payment services called');
+        check_ajax_referer('furatpay-nonce', 'nonce');
+
+        try {
+            $services = FuratPay_API_Handler::get_payment_services($this->api_url, $this->api_key);
+            wp_send_json_success($services);
+        } catch (Exception $e) {
+            error_log('FuratPay AJAX Error: ' . $e->getMessage());
+            wp_send_json_error(array(
+                'message' => $e->getMessage()
+            ));
+        }
+    }
+
+    public function ajax_initiate_payment() {
+        check_ajax_referer('furatpay-nonce', 'nonce');
+
+        try {
+            // Get form data
+            parse_str($_POST['form_data'], $form_data);
+            
+            // Create temporary order data
+            $order_data = array(
+                'total' => WC()->cart->get_total('edit'),
+                'currency' => get_woocommerce_currency(),
+            );
+            
+            // Create invoice
+            $invoice_id = FuratPay_API_Handler::create_invoice(
+                $this->api_url,
+                $this->api_key,
+                $order_data,
+                $this->get_option('customer_id')
+            );
+
+            // Get payment URL
+            $payment_url = FuratPay_API_Handler::create_payment(
+                $this->api_url,
+                $this->api_key,
+                $invoice_id,
+                intval($_POST['payment_service'])
+            );
+
+            // Store invoice ID in session for later use when webhook arrives
+            WC()->session->set('furatpay_pending_invoice', $invoice_id);
+
+            wp_send_json_success(array(
+                'payment_url' => $payment_url
+            ));
+        } catch (Exception $e) {
+            wp_send_json_error(array(
+                'message' => $e->getMessage()
+            ));
+        }
     }
 }
