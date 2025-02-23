@@ -28,21 +28,22 @@
     gap: 10px;
 }
 
-.furatpay-method-item {
-    margin: 0;
-    padding: 0;
-}
+/* .furatpay-method-item {
+    margin: 0 !important;
+    padding: 0 !important;
+} */
 
 .furatpay-method-item label {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 12px;
-    border: 1px solid #ddd;
+    /* border: 1px solid #ddd; */
     border-radius: 4px;
     background: #fff;
     cursor: pointer;
     transition: all 0.2s ease;
+    
 }
 
 .furatpay-method-item label:hover {
@@ -52,6 +53,8 @@
 
 .furatpay-method-item input[type="radio"] {
     margin: 0;
+    height: 20px;
+    width: 20px;
 }
 
 .furatpay-method-logo {
@@ -90,8 +93,9 @@
 
 /* Block-specific styles */
 .furatpay-payment-method-block {
-    padding: 16px;
-    background: #f8f9fa;
+    /* padding: 16px; */
+    /* background: #f8f9fa; */
+    background: transparent;
     border-radius: 4px;
     margin-bottom: 16px;
 }
@@ -118,9 +122,9 @@
     margin: 16px 0;
 }
 
-.furatpay-method-item {
+/* .furatpay-method-item {
     margin-bottom: 8px;
-}
+} */
 
 .furatpay-method-item label {
     display: flex;
@@ -179,9 +183,9 @@
 }
 
 .furatpay-method-item {
-    margin-bottom: 10px;
-    padding: 10px;
-    border: 1px solid #ddd;
+    /* margin-bottom: 10px; */
+    /* padding: 10px; */
+    /* border: 1px solid #ddd; */
     border-radius: 4px;
     transition: border-color 0.2s;
 }

@@ -13,7 +13,6 @@ class FuratPay_Gateway extends WC_Payment_Gateway
 
     public function __construct()
     {
-        error_log('#### FuratPay: Gateway constructor called ####');
 
         // Basic gateway setup
         $this->id = 'furatpay';
@@ -42,8 +41,10 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         add_action('woocommerce_review_order_before_payment', array($this, 'payment_fields_before'));
         add_action('woocommerce_review_order_after_payment', array($this, 'payment_fields_after'));
         
-        add_action('woocommerce_init', function () {
-            new FuratPay_IPN_Handler($this->api_url, $this->api_key);
+        add_action('init', function() {
+            if (class_exists('FuratPay_IPN_Handler')) {
+                new FuratPay_IPN_Handler($this->api_url, $this->api_key);
+            }
         });
 
         // Enable blocks integration
