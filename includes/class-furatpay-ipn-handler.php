@@ -30,7 +30,7 @@ class FuratPay_IPN_Handler {
             $payloadStr = json_encode($payload);
             $signaturePayload = $payloadStr.$timestamp.$this->api_key;
             // $calculatedSignature =  'sha256='.hash('sha256', $signaturePayload);
-            $calculatedSignature =  'sha256='.hash_hmac('sha256', $signaturePayload, '123');
+            $calculatedSignature =  hash('sha256', $signaturePayload);
 
             if (!$payload) {
                 throw new Exception('Invalid JSON received');
