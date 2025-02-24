@@ -24,18 +24,23 @@ class FuratPay_IPN_Handler {
 
         try {
             $payload = $request->get_json_params();
+            ksort($payload); // Sort keys to match JS stable encoding
+            $sortedPayload = 
             $headers = $request->get_headers();
             $timestamp = isset($headers['x_timestamp']) ? $headers['x_timestamp'][0]:null;
             $payloadSignature =  isset( $headers['x_signature']) ? $headers['x_signature'][0] :null;
-            $payloadStr = json_encode($payload);
-            $signaturePayload = $payloadStr.$timestamp.$this->api_key;
+            $payloadStr = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $signaturePayload = $payloadStr.$timestamp;
             // $calculatedSignature =  'sha256='.hash('sha256', $signaturePayload);
-            $calculatedSignature =  hash('sha256', $signaturePayload);
+            // $calculatedSignature =  hash('sha256', $signaturePayload);
+            $calculatedSignature = hash_hmac('sha256', $signaturePayload, $this->api_key);
+
 
             if (!$payload) {
                 throw new Exception('Invalid JSON received');
             }
 
+            error_log('Key: ' . $this->api_key);
             error_log('Timestamp: ' . $timestamp);
             error_log('Payload Signature   : ' . $payloadSignature);
             error_log('Calculated Signature: ' . $calculatedSignature);
