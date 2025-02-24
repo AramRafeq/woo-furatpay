@@ -1,4 +1,6 @@
 <?php
+
+
 class FuratPay_IPN_Handler {
 
     public function __construct($api_url, $token) {
@@ -18,14 +20,22 @@ class FuratPay_IPN_Handler {
     }
 
    
+   
     public function handle_ipn(WP_REST_Request $request) {
 
         error_log('FuratPay IPN received');
 
         try {
             $payload = $request->get_json_params();
-            ksort($payload); // Sort keys to match JS stable encoding
-            $sortedPayload = 
+            array_walk_recursive($payload, function (&$value) {
+                if(is_array($value)){
+                    error_log('FuratPay Payload Item VALUE: '.$value);
+
+                }
+                if (is_array($value) && empty($value)) {
+                    $value = new stdClass(); // Convert empty arrays to empty objects
+                }
+            });
             $headers = $request->get_headers();
             $timestamp = isset($headers['x_timestamp']) ? $headers['x_timestamp'][0]:null;
             $payloadSignature =  isset( $headers['x_signature']) ? $headers['x_signature'][0] :null;
