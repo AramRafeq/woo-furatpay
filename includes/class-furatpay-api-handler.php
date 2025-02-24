@@ -70,9 +70,11 @@ class FuratPay_API_Handler
         $current_time = current_time('mysql', true);
         
         $invoice_data = [
-            'code' => $order->get_order_number(),
+            'code' => $order->get_id().'',
+            // 'code' => $order->get_order_number(),
             'number' => '1',
-            'order_number' => $order->get_order_number(),
+            'order_number' => $order->get_id().'',
+            // 'order_number' => $order->get_order_number(),
             'customer_id' => $customer_id,
             'currency_id' => 3,
             'base_currency_id' => 3,
@@ -143,6 +145,7 @@ class FuratPay_API_Handler
         }
 
         $order->update_meta_data('_furatpay_invoice_id', $body_array['id']);
+        $order->add_order_note(__('FuratPay Invoice Id: '. $body_array['id'], 'woo_furatpay'));
         $order->save();
 
         return $body_array['id'];

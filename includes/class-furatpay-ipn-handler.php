@@ -27,7 +27,6 @@ class FuratPay_IPN_Handler {
 
         try {
             $payload = $request->get_json_params();
-            convertEmptyArraysToObjects($payload);
            
            
             if (!$payload) {
@@ -39,32 +38,29 @@ class FuratPay_IPN_Handler {
             $payloadSignature =  isset( $headers['x_signature']) ? $headers['x_signature'][0] :null;
             $signaturePayload = $payload['data']['id'].$payload['data']['code'].$payload['data']['order_number'].$timestamp;
             $calculatedSignature = hash_hmac('sha256', trim($signaturePayload), $this->api_key,false);
+
             if($calculatedSignature!==$payloadSignature){
                 throw new Exception('Invalid payload signature');
             }
 
-            error_log('Key: ' . $this->api_key);
-            error_log('Timestamp: ' . $timestamp);
-            error_log('Payload Signature   : ' . $payloadSignature);
-            error_log('Calculated Signature: ' . $calculatedSignature);
-            error_log('RawPayload: ' . $signaturePayload);
            
-            // if ($payload['type'] != 'INVOICE_PAID' ) {
-            //     return new WP_REST_Response(['success' => false, 'message'=>'webhook type is ignored'], 400);
-            // }
+            if ($payload['type'] != 'INVOICE_PAID' && $payload['type'] != 'INVOICE_UPDATED' ) {
+                return new WP_REST_Response(['success' => false, 'message'=>'webhook type is ignored'], 400);
+            }
 
-            if (!isset($payload['invoice_id'])) {
-                throw new Exception('Missing invoice_id');
+            if (!isset($payload['data']['order_number'])) {
+                throw new Exception('Missing invoice code');
             }
 
             
 
-            $order = $this->get_order_by_invoice_id($payload['data']['id']);
+            $order = $this->get_order_by_id($payload['data']['order_number']);
+            error_log('ORDER: ' . $order);
             $invoice_status = $this->get_invoice_status($payload['data']['id']);
 
             error_log("Invoice Status: $invoice_status");
 
-            if ('paid' === $invoice_status) {
+            if ('paid' === $invoice_status ) {
                 $order->payment_complete();
                 $order->add_order_note(__('Payment confirmed via FuratPay IPN', 'woo_furatpay'));
             }
@@ -97,17 +93,13 @@ class FuratPay_IPN_Handler {
         return $body['status'] ?? 'unknown';
     }
 
-    private function get_order_by_invoice_id($invoice_id) {
-        $orders = wc_get_orders([
-            'meta_key' => '_furatpay_invoice_id',
-            'meta_value' => $invoice_id,
-            'limit' => 1
-        ]);
+    private function get_order_by_id($order_id) {
+        $order= wc_get_order($order_id);
         
-        if (empty($orders)) {
+        if (!$order) {
             throw new Exception('Order not found');
         }
         
-        return $orders[0];
+        return $order;
     }
 }
