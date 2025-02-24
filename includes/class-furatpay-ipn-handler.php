@@ -27,27 +27,20 @@ class FuratPay_IPN_Handler {
 
         try {
             $payload = $request->get_json_params();
-            array_walk_recursive($payload, function (&$value) {
-                if(is_array($value)){
-                    error_log('FuratPay Payload Item VALUE: '.$value);
+            convertEmptyArraysToObjects($payload);
+           
+           
+            if (!$payload) {
+                throw new Exception('Invalid JSON received');
+            }
 
-                }
-                if (is_array($value) && empty($value)) {
-                    $value = new stdClass(); // Convert empty arrays to empty objects
-                }
-            });
             $headers = $request->get_headers();
             $timestamp = isset($headers['x_timestamp']) ? $headers['x_timestamp'][0]:null;
             $payloadSignature =  isset( $headers['x_signature']) ? $headers['x_signature'][0] :null;
-            $payloadStr = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $signaturePayload = $payloadStr.$timestamp;
-            // $calculatedSignature =  'sha256='.hash('sha256', $signaturePayload);
-            // $calculatedSignature =  hash('sha256', $signaturePayload);
-            $calculatedSignature = hash_hmac('sha256', $signaturePayload, $this->api_key);
-
-
-            if (!$payload) {
-                throw new Exception('Invalid JSON received');
+            $signaturePayload = $payload['data']['id'].$payload['data']['code'].$payload['data']['order_number'].$timestamp;
+            $calculatedSignature = hash_hmac('sha256', trim($signaturePayload), $this->api_key,false);
+            if($calculatedSignature!==$payloadSignature){
+                throw new Exception('Invalid payload signature');
             }
 
             error_log('Key: ' . $this->api_key);
@@ -55,9 +48,7 @@ class FuratPay_IPN_Handler {
             error_log('Payload Signature   : ' . $payloadSignature);
             error_log('Calculated Signature: ' . $calculatedSignature);
             error_log('RawPayload: ' . $signaturePayload);
-            // error_log('Headers: ' .  print_r($headers, true));
-            // error_log('Payload: ' . print_r($payload, true));
-
+           
             // if ($payload['type'] != 'INVOICE_PAID' ) {
             //     return new WP_REST_Response(['success' => false, 'message'=>'webhook type is ignored'], 400);
             // }
@@ -68,8 +59,8 @@ class FuratPay_IPN_Handler {
 
             
 
-            $order = $this->get_order_by_invoice_id($payload['invoice_id']);
-            $invoice_status = $this->get_invoice_status($payload['invoice_id']);
+            $order = $this->get_order_by_invoice_id($payload['data']['id']);
+            $invoice_status = $this->get_invoice_status($payload['data']['id']);
 
             error_log("Invoice Status: $invoice_status");
 
