@@ -52,8 +52,6 @@ class FuratPay_IPN_Handler {
                 throw new Exception('Missing invoice code');
             }
 
-            
-
             $order = $this->get_order_by_id($payload['data']['order_number']);
             error_log('ORDER: ' . $order);
             $invoice_status = $this->get_invoice_status($payload['data']['id']);
