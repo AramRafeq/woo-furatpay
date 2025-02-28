@@ -82,17 +82,29 @@ get_header('shop');
                     </button>
                 </div>
             <?php else: ?>
-                <p><?php esc_html_e('Click the button below to open the payment window:', 'woo_furatpay'); ?></p>
-                <button id="furatpay-open-payment" class="button alt">
-                    <?php esc_html_e('Open Payment Window', 'woo_furatpay'); ?>
-                </button>
+                <!-- Initial Payment Button Container -->
+                <div id="furatpay-initial-payment" class="furatpay-payment-section">
+                    <p><?php esc_html_e('Click the button below to open the payment window:', 'woo_furatpay'); ?></p>
+                    <button id="furatpay-open-payment" class="button alt">
+                        <?php esc_html_e('Open Payment Window', 'woo_furatpay'); ?>
+                    </button>
+                </div>
+
+                <!-- Payment Status Container (Hidden initially) -->
+                <div id="furatpay-payment-status" class="furatpay-payment-section" style="display: none;">
+                    <p><?php esc_html_e('Payment window has been opened in a new tab. Please complete your payment there.', 'woo_furatpay'); ?></p>
+                    <div class="furatpay-spinner"></div>
+                    <p style="font-size: 17px;font-weight:500;"><?php esc_html_e('This page will update automatically once payment is confirmed.', 'woo_furatpay'); ?></p>
+                </div>
+
+                <!-- Popup Blocked Message (Hidden initially) -->
+                <div id="furatpay-popup-blocked" class="furatpay-payment-section" style="display: none;">
+                    <p class="furatpay-warning"><?php esc_html_e('To proceed with your payment, please allow popups for this website.', 'woo_furatpay'); ?></p>
+                    <button id="furatpay-retry-payment" class="button alt">
+                        <?php esc_html_e('Try Again', 'woo_furatpay'); ?>
+                    </button>
+                </div>
             <?php endif; ?>
-            
-            <div id="furatpay-payment-status" style="display: none;">
-                <p><?php esc_html_e('Payment window has been opened in a new tab. Please complete your payment there.', 'woo_furatpay'); ?></p>
-                <p><?php esc_html_e('This page will update automatically once payment is confirmed.', 'woo_furatpay'); ?></p>
-                <div class="furatpay-spinner"></div>
-            </div>
         </div>
     </div>
 </div>
@@ -102,32 +114,54 @@ jQuery(function($) {
     var paymentUrl = <?php echo json_encode($payment_url); ?>;
     var returnUrl = <?php echo json_encode($return_url); ?>;
     var orderId = <?php echo json_encode($order->get_id()); ?>;
-    var paymentService = <?php echo json_encode($payment_service); ?>;
     var checkInterval;
+    var paymentWindow = null;
 
     function openPaymentWindow() {
-        // For PayTabs, redirect directly to the payment URL
-        if (paymentService == 5) {
-            window.location.href = paymentUrl;
-            return true;
-        }
-
-        // For other services, open in a new window
+        // First try to open a test window
         var testWindow = window.open('about:blank', 'test');
         if (!testWindow || testWindow.closed) {
-            console.log('Popup was blocked');
+            showSection('popup-blocked');
             return false;
         }
         testWindow.close();
 
-        var paymentWindow = window.open(paymentUrl, '_blank');
+        // Try to open actual payment window
+        paymentWindow = window.open(paymentUrl, 'FuratPayment');
         if (!paymentWindow || paymentWindow.closed) {
-            console.log('Payment window was blocked');
+            showSection('popup-blocked');
             return false;
         }
 
         paymentWindow.focus();
+        showSection('payment-status');
+        startPaymentCheck();
         return true;
+    }
+
+    function showSection(section) {
+        // Hide all sections first
+        $('.furatpay-payment-section').hide();
+        
+        // Show the requested section
+        switch(section) {
+            case 'initial':
+                $('#furatpay-initial-payment').show();
+                break;
+            case 'payment-status':
+                $('#furatpay-payment-status').show();
+                break;
+            case 'popup-blocked':
+                $('#furatpay-popup-blocked').show();
+                break;
+        }
+    }
+
+    function startPaymentCheck() {
+        if (checkInterval) {
+            clearInterval(checkInterval);
+        }
+        checkInterval = setInterval(checkPaymentStatus, 5000);
     }
 
     function checkPaymentStatus() {
@@ -140,47 +174,30 @@ jQuery(function($) {
                 nonce: <?php echo json_encode($nonce); ?>
             },
             success: function(response) {
-                console.log('Payment status response:', response);
                 if (response.success) {
                     if (response.data.status === 'completed') {
                         clearInterval(checkInterval);
                         window.location.href = returnUrl;
                     } else if (response.data.status === 'failed') {
                         clearInterval(checkInterval);
-                        alert(response.data.message || furatpayData.i18n.paymentFailed);
-                        $('#furatpay-payment-status').hide();
-                        $('#furatpay-open-payment').show();
+                        showSection('initial');
                     }
-                } else {
-                    console.error('Payment status check failed:', response);
                 }
-            },
-            error: function(xhr, status, error) {
-                console.error('Payment status check error:', error);
             }
         });
+
+        // Also check if payment window was closed
+        if (paymentWindow && paymentWindow.closed) {
+            clearInterval(checkInterval);
+            showSection('initial');
+        }
     }
 
-    $('#furatpay-open-payment').on('click', function(e) {
+    // Event Handlers
+    $('#furatpay-open-payment, #furatpay-retry-payment').on('click', function(e) {
         e.preventDefault();
-        
-        if (openPaymentWindow()) {
-            $(this).hide();
-            if (paymentService != 5) { // Don't show status for PayTabs
-                $('#furatpay-payment-status').show();
-            }
-            
-            // Start checking payment status
-            checkInterval = setInterval(checkPaymentStatus, 5000);
-        } else {
-            alert(furatpayData.i18n.popupBlocked);
-        }
+        openPaymentWindow();
     });
-
-    // Start payment status check immediately for FIB payments
-    <?php if ($fib_data): ?>
-    checkInterval = setInterval(checkPaymentStatus, 5000);
-    <?php endif; ?>
 });
 </script>
 
@@ -203,7 +220,7 @@ jQuery(function($) {
     width: 50px;
     height: 50px;
     border: 3px solid #f3f3f3;
-    border-top: 3px solid #3498db;
+    border-top: 3px solid #49db34;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     margin: 20px auto;
@@ -214,10 +231,48 @@ jQuery(function($) {
     100% { transform: rotate(360deg); }
 }
 
-#furatpay-open-payment {
-    font-size: 1.2em;
-    padding: 1em 2em;
-    margin: 1em 0;
+.furatpay-warning {
+    color: #d63638;
+    font-weight: 500;
+    margin-bottom: 1em;
+}
+
+#furatpay-open-payment,
+#furatpay-retry-payment {
+    display: inline-block;
+    padding: 12px 24px;
+    background-color: #52c41a;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+    transition: all 0.3s ease;
+    margin: 10px 0;
+    width: auto;
+    min-width: 100%;
+    height: 60px;
+}
+
+#furatpay-open-payment:hover,
+#furatpay-retry-payment:hover {
+    background-color: #389e0d;
+    color: #ffffff;
+    text-decoration: none;
+}
+
+#furatpay-open-payment:active,
+#furatpay-retry-payment:active {
+    transform: translateY(1px);
+}
+
+#furatpay-open-payment:disabled,
+#furatpay-retry-payment:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
 }
 
 .furatpay-payment-details {
