@@ -57,6 +57,8 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         add_action('wp_ajax_nopriv_furatpay_get_payment_services', array($this, 'ajax_get_payment_services'));
         add_action('wp_ajax_furatpay_initiate_payment', array($this, 'ajax_initiate_payment'));
         add_action('wp_ajax_nopriv_furatpay_initiate_payment', array($this, 'ajax_initiate_payment'));
+        add_action('wp_ajax_furatpay_check_payment_status', array($this, 'check_payment_status'));
+        add_action('wp_ajax_nopriv_furatpay_check_payment_status', array($this, 'check_payment_status'));
 
         // Debug hooks
         add_action('woocommerce_checkout_before_customer_details', array($this, 'debug_before_customer_details'));
@@ -504,24 +506,28 @@ class FuratPay_Gateway extends WC_Payment_Gateway
 
     public function check_payment_status()
     {
-        check_ajax_referer('furatpay-nonce', 'nonce');
-
-        $order_id = isset($_POST['order_id']) ? intval($_POST['order_id']) : 0;
-        if (!$order_id) {
-            wp_send_json_error(['message' => __('Invalid order ID', 'woo_furatpay')]);
-        }
-
-        $order = wc_get_order($order_id);
-        if (!$order) {
-            wp_send_json_error(['message' => __('Order not found', 'woo_furatpay')]);
-        }
-
-        $invoice_id = $order->get_meta('_furatpay_invoice_id');
-        if (!$invoice_id) {
-            wp_send_json_error(['message' => __('Invoice ID not found', 'woo_furatpay')]);
-        }
-
         try {
+            // Verify nonce
+            check_ajax_referer('furatpay-nonce', 'nonce');
+
+            // Get and validate order_id
+            $order_id = isset($_POST['order_id']) ? intval($_POST['order_id']) : 0;
+            if (!$order_id) {
+                throw new Exception(__('Invalid order ID', 'woo_furatpay'));
+            }
+
+            // Get order
+            $order = wc_get_order($order_id);
+            if (!$order) {
+                throw new Exception(__('Order not found', 'woo_furatpay'));
+            }
+
+            // Get invoice ID
+            $invoice_id = $order->get_meta('_furatpay_invoice_id');
+            if (!$invoice_id) {
+                throw new Exception(__('Invoice ID not found', 'woo_furatpay'));
+            }
+
             // Check payment status with FuratPay API
             $status = FuratPay_API_Handler::check_payment_status(
                 $this->api_url,
@@ -529,26 +535,41 @@ class FuratPay_Gateway extends WC_Payment_Gateway
                 $invoice_id
             );
 
-            if ($status === 'paid') {
-                $order->payment_complete();
-                wp_send_json_success([
-                    'status' => 'completed',
-                    'redirect_url' => $order->get_checkout_order_received_url()
-                ]);
-            } else if ($status === 'failed') {
-                $order->update_status('failed', __('Payment failed or was declined', 'woo_furatpay'));
-                wp_send_json_success([
-                    'status' => 'failed',
-                    'message' => __('Payment failed or was declined. Please try again.', 'woo_furatpay')
-                ]);
-            } else {
-                wp_send_json_success([
-                    'status' => 'pending'
-                ]);
+            error_log('FuratPay: Payment status check for order ' . $order_id . ' returned: ' . $status);
+
+            switch ($status) {
+                case 'paid':
+                    $order->payment_complete();
+                    wp_send_json_success([
+                        'status' => 'completed',
+                        'redirect_url' => $order->get_checkout_order_received_url()
+                    ]);
+                    break;
+
+                case 'failed':
+                    $order->update_status('failed', __('Payment failed or was declined', 'woo_furatpay'));
+                    wp_send_json_success([
+                        'status' => 'failed',
+                        'message' => __('Payment failed or was declined. Please try again.', 'woo_furatpay')
+                    ]);
+                    break;
+
+                default:
+                    wp_send_json_success([
+                        'status' => 'pending'
+                    ]);
+                    break;
             }
+
         } catch (Exception $e) {
-            wp_send_json_error(['message' => $e->getMessage()]);
+            error_log('FuratPay Error: ' . $e->getMessage());
+            wp_send_json_error([
+                'message' => $e->getMessage()
+            ]);
         }
+
+        // Ensure we always exit after sending JSON response
+        wp_die();
     }
 
     public function validate_fields()
