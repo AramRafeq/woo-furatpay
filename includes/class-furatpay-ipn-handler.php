@@ -1,45 +1,82 @@
 <?php
+
+
 class FuratPay_IPN_Handler {
 
     public function __construct($api_url, $token) {
         $this->api_url = $api_url;
-        $this->token = $token;
-        
-        add_action('woocommerce_api_furatpay_ipn', [$this, 'handle_ipn']);
+        $this->api_key = $token;
+
+        // Register REST API route
+        add_action('rest_api_init', [$this, 'register_routes']);
     }
 
-    public function handle_ipn() {
+    public function register_routes() {
+        register_rest_route('furatpay/v1', '/ipn', [
+            'methods'  => 'POST',
+            'callback' => [$this, 'handle_ipn'],
+            'permission_callback' => '__return_true', // Allow public access
+        ]);
+    }
+
+   
+   
+    public function handle_ipn(WP_REST_Request $request) {
+
+        error_log('FuratPay IPN received');
+
         try {
-            $payload = json_decode(file_get_contents('php://input'), true);
-            
-            if (!isset($payload['invoice_id'])) {
-                throw new Exception('Invalid IPN payload');
+            $payload = $request->get_json_params();
+           
+           
+            if (!$payload) {
+                throw new Exception('Invalid JSON received');
             }
-            
-            $order = $this->get_order_by_invoice_id($payload['invoice_id']);
-            
-            // Verify invoice status with API
-            $invoice_status = $this->get_invoice_status($payload['invoice_id']);
-            
-            if ('paid' === $invoice_status) {
+
+            $headers = $request->get_headers();
+            $timestamp = isset($headers['x_timestamp']) ? $headers['x_timestamp'][0]:null;
+            $payloadSignature =  isset( $headers['x_signature']) ? $headers['x_signature'][0] :null;
+            $signaturePayload = $payload['data']['id'].$payload['data']['code'].$payload['data']['order_number'].$timestamp;
+            $calculatedSignature = hash_hmac('sha256', trim($signaturePayload), $this->api_key,false);
+
+            if($calculatedSignature!==$payloadSignature){
+                throw new Exception('Invalid payload signature');
+            }
+
+           
+            if ($payload['type'] != 'INVOICE_PAID' && $payload['type'] != 'INVOICE_UPDATED' ) {
+                return new WP_REST_Response(['success' => false, 'message'=>'webhook type is ignored'], 400);
+            }
+
+            if (!isset($payload['data']['order_number'])) {
+                throw new Exception('Missing invoice code');
+            }
+
+            $order = $this->get_order_by_id($payload['data']['order_number']);
+            error_log('ORDER: ' . $order);
+            $invoice_status = $this->get_invoice_status($payload['data']['id']);
+
+            error_log("Invoice Status: $invoice_status");
+
+            if ('paid' === $invoice_status ) {
                 $order->payment_complete();
                 $order->add_order_note(__('Payment confirmed via FuratPay IPN', 'woo_furatpay'));
             }
-            
-            wp_send_json_success();
-            
+
+            return new WP_REST_Response(['success' => true], 200);
         } catch (Exception $e) {
             error_log('FuratPay IPN Error: ' . $e->getMessage());
-            wp_send_json_error();
+            return new WP_REST_Response(['error' => $e->getMessage()], 400);
         }
     }
+
 
     private function get_invoice_status($invoice_id) {
         $response = wp_remote_get(
             $this->api_url . '/invoice/' . $invoice_id,
             [
                 'headers' => [
-                    'Authorization' => 'Bearer ' . $this->token,
+                    'X-API-key' => $this->api_key,
                     'Content-Type' => 'application/json'
                 ]
             ]
@@ -54,17 +91,13 @@ class FuratPay_IPN_Handler {
         return $body['status'] ?? 'unknown';
     }
 
-    private function get_order_by_invoice_id($invoice_id) {
-        $orders = wc_get_orders([
-            'meta_key' => '_furatpay_invoice_id',
-            'meta_value' => $invoice_id,
-            'limit' => 1
-        ]);
+    private function get_order_by_id($order_id) {
+        $order= wc_get_order($order_id);
         
-        if (empty($orders)) {
+        if (!$order) {
             throw new Exception('Order not found');
         }
         
-        return $orders[0];
+        return $order;
     }
 }
