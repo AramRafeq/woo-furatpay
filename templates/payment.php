@@ -111,6 +111,7 @@ get_header('shop');
 
 <script type="text/javascript">
 jQuery(function($) {
+    var fibData = <?php echo json_encode(get_transient('furatpay_fib_data_' . $invoice_id)); ?>;
     var paymentUrl = <?php echo json_encode($payment_url); ?>;
     var returnUrl = <?php echo json_encode($return_url); ?>;
     var orderId = <?php echo json_encode($order->get_id()); ?>;
@@ -118,6 +119,7 @@ jQuery(function($) {
     var paymentWindow = null;
 
     function openPaymentWindow() {
+      
         // First try to open a test window
         var testWindow = window.open('about:blank', 'test');
         if (!testWindow || testWindow.closed) {
@@ -126,15 +128,18 @@ jQuery(function($) {
         }
         testWindow.close();
 
-        // Try to open actual payment window
-        paymentWindow = window.open(paymentUrl, 'FuratPayment');
-        if (!paymentWindow || paymentWindow.closed) {
-            showSection('popup-blocked');
-            return false;
+        // for FIB skip window open
+        if(!fibData){
+            // Try to open actual payment window
+            paymentWindow = window.open(paymentUrl, 'FuratPayment');
+            if (!paymentWindow || paymentWindow.closed) {
+                showSection('popup-blocked');
+                return false;
+            }
+            paymentWindow.focus();
+            showSection('payment-status');
         }
 
-        paymentWindow.focus();
-        showSection('payment-status');
         return true;
     }
 

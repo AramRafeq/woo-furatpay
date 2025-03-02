@@ -72,7 +72,7 @@ class FuratPay_API_Handler
         $invoice_data = [
             'code' => $order->get_id().'',
             // 'code' => $order->get_order_number(),
-            'number' => '1',
+            'number' => $order->get_id().'',
             'order_number' => $order->get_id().'',
             // 'order_number' => $order->get_order_number(),
             'customer_id' => $customer_id,

@@ -13,7 +13,6 @@ class FuratPay_Gateway extends WC_Payment_Gateway
 
     public function __construct()
     {
-
         // Basic gateway setup
         $this->id = 'furatpay';
         $this->has_fields = true;
@@ -158,21 +157,15 @@ class FuratPay_Gateway extends WC_Payment_Gateway
     }
 
     public function payment_fields_before() {
-        error_log('FuratPay: Before payment fields section');
         echo '<div id="furatpay-payment-form-wrapper">';
     }
 
     public function payment_fields_after() {
-        error_log('FuratPay: After payment fields section');
         echo '</div>';
     }
 
     public function payment_fields()
     {
-        error_log('FuratPay Gateway: Starting payment_fields method');
-        error_log('FuratPay Gateway: API URL configured: ' . $this->api_url);
-        error_log('FuratPay Gateway: API Key configured: ' . substr($this->api_key, 0, 8) . '...');
-        
         try {
             echo '<div class="furatpay-payment-form">';
             
@@ -181,16 +174,12 @@ class FuratPay_Gateway extends WC_Payment_Gateway
             }
 
             if (empty($this->api_url) || empty($this->api_key)) {
-                error_log('FuratPay Gateway: Missing API configuration');
                 throw new Exception(__('Payment method is not properly configured.', 'woo_furatpay'));
             }
 
-            error_log('FuratPay Gateway: Fetching payment services');
             $payment_services = FuratPay_API_Handler::get_payment_services($this->api_url, $this->api_key);
-            error_log('FuratPay Gateway: Raw payment services: ' . print_r($payment_services, true));
             
             if (empty($payment_services)) {
-                error_log('FuratPay Gateway: No payment services available');
                 throw new Exception(__('No payment methods available.', 'woo_furatpay'));
             }
 
@@ -198,7 +187,6 @@ class FuratPay_Gateway extends WC_Payment_Gateway
             $active_services = $payment_services;
 
             if (empty($active_services)) {
-                error_log('FuratPay Gateway: No active payment services available');
                 throw new Exception(__('No active payment methods available.', 'woo_furatpay'));
             }
 
@@ -207,7 +195,6 @@ class FuratPay_Gateway extends WC_Payment_Gateway
             echo '<ul class="furatpay-method-list">';
             
             foreach ($active_services as $service) {
-                error_log('FuratPay Gateway: Processing service: ' . print_r($service, true));
                 echo '<li class="furatpay-method-item">';
                 echo '<label>';
                 echo '<input 
@@ -235,12 +222,10 @@ class FuratPay_Gateway extends WC_Payment_Gateway
             echo '</ul>';
             echo '</div>';
             
-            // Add JavaScript for handling radio button changes
             ?>
             <script type="text/javascript">
             jQuery(function($) {
                 $('.furatpay-service-radio').on('change', function() {
-                    console.log('Payment service selected:', $(this).val());
                     $('body').trigger('update_checkout');
                 });
             });
@@ -248,10 +233,8 @@ class FuratPay_Gateway extends WC_Payment_Gateway
             <?php
             
             echo '</div>';
-            error_log('FuratPay Gateway: Payment form rendered successfully');
             
         } catch (Exception $e) {
-            error_log('FuratPay Gateway Error: ' . $e->getMessage());
             echo '<div class="woocommerce-error">' . esc_html($e->getMessage()) . '</div>';
         }
     }
