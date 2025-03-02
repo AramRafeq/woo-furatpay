@@ -3,7 +3,7 @@
 [FuratPay](https://furatpay.com) is Iraq's first all-in-one payment platform, offering instant invoicing, WooCommerce integration, and a unified API.  
 
 ## FuratPay WooCommerce Plugin  
-The **FuratPay WooCommerce Plugin** provides seamless integration between **FuratPay** (an aggregator) and **WooCommerce**, enabling Iraqi payment wallets and gateways on your WordPress website.  
+The **FuratPay WooCommerce Plugin** provides seamless integration between **FuratPay** (an aggregator) and **WooCommerce**, enabling Iraqi payment wallets and gateways such as **ZainCash, FastPay, and FIB** on your WordPress website.  
 
 # How It Works  
 The `woo-furatpay` plugin leverages **FuratPay's unified API** behind the scenes. It automatically loads your organization's configuration from the **FuratPay Admin Panel**, allowing you to:  
