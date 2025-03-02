@@ -82,26 +82,26 @@ get_header('shop');
                     </button>
                 </div>
             <?php else: ?>
-                <!-- Initial Payment Button Container -->
-                <div id="furatpay-initial-payment" class="furatpay-payment-section">
-                    <p><?php esc_html_e('Click the button below to open the payment window:', 'woo_furatpay'); ?></p>
-                    <button id="furatpay-open-payment" class="button alt">
-                        <?php esc_html_e('Open Payment Window', 'woo_furatpay'); ?>
-                    </button>
-                </div>
-
-                <!-- Payment Status Container (Hidden initially) -->
-                <div id="furatpay-payment-status" class="furatpay-payment-section" style="display: none;">
+                <!-- Payment Status Container -->
+                <div id="furatpay-payment-status" class="furatpay-payment-section">
                     <p><?php esc_html_e('Payment window has been opened in a new tab. Please complete your payment there.', 'woo_furatpay'); ?></p>
                     <div class="furatpay-spinner"></div>
                     <p style="font-size: 17px;font-weight:500;"><?php esc_html_e('This page will update automatically once payment is confirmed.', 'woo_furatpay'); ?></p>
                 </div>
 
-                <!-- Popup Blocked Message (Hidden initially) -->
+                <!-- Popup Blocked Message -->
                 <div id="furatpay-popup-blocked" class="furatpay-payment-section" style="display: none;">
                     <p class="furatpay-warning"><?php esc_html_e('To proceed with your payment, please allow popups for this website.', 'woo_furatpay'); ?></p>
                     <button id="furatpay-retry-payment" class="button alt">
                         <?php esc_html_e('Try Again', 'woo_furatpay'); ?>
+                    </button>
+                </div>
+
+                <!-- Payment Retry Container -->
+                <div id="furatpay-payment-retry" class="furatpay-payment-section" style="display: none;">
+                    <p><?php esc_html_e('Payment window was closed. Click below to reopen the payment window:', 'woo_furatpay'); ?></p>
+                    <button id="furatpay-reopen-payment" class="button alt">
+                        <?php esc_html_e('Reopen Payment Window', 'woo_furatpay'); ?>
                     </button>
                 </div>
             <?php endif; ?>
@@ -135,7 +135,6 @@ jQuery(function($) {
 
         paymentWindow.focus();
         showSection('payment-status');
-        startPaymentCheck();
         return true;
     }
 
@@ -145,14 +144,14 @@ jQuery(function($) {
         
         // Show the requested section
         switch(section) {
-            case 'initial':
-                $('#furatpay-initial-payment').show();
-                break;
             case 'payment-status':
                 $('#furatpay-payment-status').show();
                 break;
             case 'popup-blocked':
                 $('#furatpay-popup-blocked').show();
+                break;
+            case 'payment-retry':
+                $('#furatpay-payment-retry').show();
                 break;
         }
     }
@@ -165,6 +164,12 @@ jQuery(function($) {
     }
 
     function checkPaymentStatus() {
+        // Check if payment window is closed and update UI
+        if (paymentWindow && paymentWindow.closed) {
+            showSection('payment-retry');
+            // Don't return - continue checking payment status
+        }
+
         $.ajax({
             url: <?php echo json_encode($ajax_url); ?>,
             type: 'POST',
@@ -180,23 +185,25 @@ jQuery(function($) {
                         window.location.href = returnUrl;
                     } else if (response.data.status === 'failed') {
                         clearInterval(checkInterval);
-                        showSection('initial');
+                        showSection('payment-retry');
                     }
+                    // If still pending, keep checking
                 }
             }
         });
-
-        // Also check if payment window was closed
-        if (paymentWindow && paymentWindow.closed) {
-            clearInterval(checkInterval);
-            showSection('initial');
-        }
     }
 
+    // Initial payment window open and start checking
+    openPaymentWindow();
+    startPaymentCheck(); // Start checking immediately
+
     // Event Handlers
-    $('#furatpay-open-payment, #furatpay-retry-payment').on('click', function(e) {
+    $('#furatpay-retry-payment, #furatpay-reopen-payment').on('click', function(e) {
         e.preventDefault();
-        openPaymentWindow();
+        if (openPaymentWindow()) {
+            // Don't need to start checking again as it's already running
+            paymentWindow.focus();
+        }
     });
 });
 </script>
@@ -237,8 +244,8 @@ jQuery(function($) {
     margin-bottom: 1em;
 }
 
-#furatpay-open-payment,
-#furatpay-retry-payment {
+#furatpay-retry-payment,
+#furatpay-reopen-payment {
     display: inline-block;
     padding: 12px 24px;
     background-color: #52c41a;
@@ -257,20 +264,20 @@ jQuery(function($) {
     height: 60px;
 }
 
-#furatpay-open-payment:hover,
-#furatpay-retry-payment:hover {
+#furatpay-retry-payment:hover,
+#furatpay-reopen-payment:hover {
     background-color: #389e0d;
     color: #ffffff;
     text-decoration: none;
 }
 
-#furatpay-open-payment:active,
-#furatpay-retry-payment:active {
+#furatpay-retry-payment:active,
+#furatpay-reopen-payment:active {
     transform: translateY(1px);
 }
 
-#furatpay-open-payment:disabled,
-#furatpay-retry-payment:disabled {
+#furatpay-retry-payment:disabled,
+#furatpay-reopen-payment:disabled {
     background-color: #ccc;
     cursor: not-allowed;
 }
@@ -370,6 +377,48 @@ jQuery(function($) {
 
 .furatpay-paytabs-container .button:hover {
     background-color: #0089bd;
+}
+
+#furatpay-open-payment,
+#furatpay-retry-payment,
+#furatpay-reopen-payment {
+    display: inline-block;
+    padding: 12px 24px;
+    background-color: #52c41a;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+    transition: all 0.3s ease;
+    margin: 10px 0;
+    width: auto;
+    min-width: 100%;
+    height: 60px;
+}
+
+#furatpay-open-payment:hover,
+#furatpay-retry-payment:hover,
+#furatpay-reopen-payment:hover {
+    background-color: #389e0d;
+    color: #ffffff;
+    text-decoration: none;
+}
+
+#furatpay-open-payment:active,
+#furatpay-retry-payment:active,
+#furatpay-reopen-payment:active {
+    transform: translateY(1px);
+}
+
+#furatpay-open-payment:disabled,
+#furatpay-retry-payment:disabled,
+#furatpay-reopen-payment:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
 }
 </style>
 

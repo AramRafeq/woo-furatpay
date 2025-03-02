@@ -365,7 +365,6 @@ class FuratPay_Gateway extends WC_Payment_Gateway
     {
         try {
             error_log('FuratPay: Processing payment for order ' . $order_id);
-            error_log('FuratPay: POST data: ' . print_r($_POST, true));
             
             $order = wc_get_order($order_id);
             if (!$order) {
@@ -378,14 +377,11 @@ class FuratPay_Gateway extends WC_Payment_Gateway
             // For blocks checkout, check the payment data
             if (!$payment_service_id && isset($_POST['payment_method_data'])) {
                 $payment_data = json_decode(stripslashes($_POST['payment_method_data']), true);
-                error_log('FuratPay: Block checkout payment data: ' . print_r($payment_data, true));
                 if (isset($payment_data['furatpay_service'])) {
                     $payment_service_id = intval($payment_data['furatpay_service']);
                 }
             }
 
-            error_log('FuratPay: Selected payment service ID: ' . $payment_service_id);
-            
             if (!$payment_service_id) {
                 throw new Exception(__('Please select a payment service', 'woo_furatpay'));
             }
@@ -404,8 +400,6 @@ class FuratPay_Gateway extends WC_Payment_Gateway
                 $customer_id
             );
 
-            error_log('FuratPay: Invoice created with ID: ' . $invoice_id);
-
             // Create payment URL
             $payment_url = FuratPay_API_Handler::create_payment(
                 $this->api_url,
@@ -413,8 +407,6 @@ class FuratPay_Gateway extends WC_Payment_Gateway
                 $invoice_id,
                 $payment_service_id
             );
-
-            error_log('FuratPay: Payment URL generated: ' . $payment_url);
 
             // Store payment details in order meta
             $order->update_meta_data('_furatpay_payment_url', $payment_url);
@@ -428,18 +420,26 @@ class FuratPay_Gateway extends WC_Payment_Gateway
             // Empty cart
             WC()->cart->empty_cart();
 
-            // Return a custom endpoint URL that will handle the payment process
-            $pay_url = add_query_arg(
-                array(
-                    'order_id' => $order->get_id(),
-                    'key' => $order->get_order_key(),
-                ),
-                WC()->api_request_url('furatpay_pay')
-            );
-
+            // Return success with payment URL and status page URL
             return array(
                 'result' => 'success',
-                'redirect' => $pay_url
+                'redirect' => add_query_arg(
+                    array(
+                        'order_id' => $order->get_id(),
+                        'key' => $order->get_order_key(),
+                    ),
+                    WC()->api_request_url('furatpay_pay')
+                ),
+                'messages' => '<script type="text/javascript">
+                    (function($) {
+                        var paymentWindow = window.open("' . esc_js($payment_url) . '", "FuratPayment");
+                        if (!paymentWindow || paymentWindow.closed) {
+                            // If popup is blocked, we\'ll handle it on the status page
+                            return;
+                        }
+                        paymentWindow.focus();
+                    })(jQuery);
+                </script>'
             );
 
         } catch (Exception $e) {
