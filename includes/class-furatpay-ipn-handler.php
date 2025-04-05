@@ -3,13 +3,19 @@
 
 class FuratPay_IPN_Handler {
 
-    public function __construct($api_url, $token) {
+    private $api_url;
+    private $api_key;
+    private $webhook_secret;
+
+    public function __construct($api_url, $api_key, $webhook_secret) {
         $this->api_url = $api_url;
-        $this->api_key = $token;
+        $this->api_key = $api_key;
+        $this->webhook_secret = $webhook_secret;
 
         // Register REST API route
         add_action('rest_api_init', [$this, 'register_routes']);
-    }
+
+   }
 
     public function register_routes() {
         register_rest_route('furatpay/v1', '/ipn', [
@@ -37,10 +43,10 @@ class FuratPay_IPN_Handler {
             $timestamp = isset($headers['x_timestamp']) ? $headers['x_timestamp'][0]:null;
             $payloadSignature =  isset( $headers['x_signature']) ? $headers['x_signature'][0] :null;
             $signaturePayload = $payload['data']['id'].$payload['data']['code'].$payload['data']['order_number'].$timestamp;
-            $calculatedSignature = hash_hmac('sha256', trim($signaturePayload), $this->api_key,false);
+            $calculatedSignature = hash_hmac('sha256', trim($signaturePayload), $this->webhook_secret,false);
 
             if($calculatedSignature!==$payloadSignature){
-                throw new Exception('Invalid payload signature');
+                throw new Exception('Invalid payload signature or webhook secret');
             }
 
            

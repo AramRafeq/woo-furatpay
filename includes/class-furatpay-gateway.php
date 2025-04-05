@@ -11,6 +11,11 @@ class FuratPay_Gateway extends WC_Payment_Gateway
      */
     protected $api_key;
 
+    /**
+     * @var string
+     */
+    protected $webhook_secret;
+
     public function __construct()
     {
         // Basic gateway setup
@@ -30,6 +35,7 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         $this->description = $this->get_option('description');
         $this->api_url = $this->get_option('api_url');
         $this->api_key = $this->get_option('api_key');
+        $this->webhook_secret = $this->get_option('webhook_secret');
 
         // Actions
         add_action('woocommerce_update_options_payment_gateways_' . $this->id, array($this, 'process_admin_options'));
@@ -42,7 +48,11 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         
         add_action('init', function() {
             if (class_exists('FuratPay_IPN_Handler')) {
-                new FuratPay_IPN_Handler($this->api_url, $this->api_key);
+                new FuratPay_IPN_Handler(
+                    $this->api_url, 
+                    $this->api_key,
+                    $this->webhook_secret
+                );
             }
         });
 
@@ -111,6 +121,13 @@ class FuratPay_Gateway extends WC_Payment_Gateway
                 'type' => 'text',
                 'description' => __('Your FuratPay customer ID', 'woo_furatpay'),
                 'default' => ''
+            ),
+            'webhook_secret' => array(
+                'title' => __('Webhook Secret', 'woo_furatpay'),
+                'type' => 'password',
+                'description' => __('Your FuratPay webhook secret key for verifying webhook signatures', 'woo_furatpay'),
+                'default' => '',
+                'desc_tip' => true
             )
         );
     }
@@ -129,6 +146,7 @@ class FuratPay_Gateway extends WC_Payment_Gateway
         $this->description = $this->get_option('description');
         $this->api_url = $this->get_option('api_url');
         $this->api_key = $this->get_option('api_key');
+        $this->webhook_secret = $this->get_option('webhook_secret');
 
         return $result;
     }
